@@ -1,60 +1,81 @@
-import './style.css'
-import javascriptLogo from './assets/javascript.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import { setupCounter } from './counter.js'
+import './style.css';
+import Tesseract from 'tesseract.js';
 
+// Scaffold basic sandbox UI
 document.querySelector('#app').innerHTML = `
-<section id="center">
-  <div class="hero">
-    <img src="${heroImg}" class="base" width="170" height="179">
-    <img src="${javascriptLogo}" class="framework" alt="JavaScript logo"/>
-    <img src="${viteLogo}" class="vite" alt="Vite logo" />
+  <div style="font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px;">
+    <h2>NutriVision OCR Sandbox</h2>
+    <p>Phase 3: Basic Tesseract Initialization</p>
+    
+    <div style="margin-bottom: 20px;">
+      <canvas id="sampleCanvas" width="300" height="100" style="border: 1px dashed #999; display: block; margin-bottom: 10px;"></canvas>
+      <button id="runOcrBtn" style="padding: 10px 20px; font-size: 16px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px;">Run OCR on Canvas</button>
+    </div>
+    
+    <div style="margin-bottom: 20px;">
+      <strong>Status:</strong> <span id="statusText">Idle</span>
+      <progress id="progressBar" value="0" max="100" style="width: 100%; display: none; margin-top: 5px;"></progress>
+    </div>
+    
+    <div>
+      <strong>Extracted Text:</strong>
+      <pre id="outputText" style="background: #f4f4f4; padding: 10px; border-radius: 4px; min-height: 50px; white-space: pre-wrap; border: 1px solid #ddd;"></pre>
+    </div>
   </div>
-  <div>
-    <h1>Get started</h1>
-    <p>Edit <code>src/main.js</code> and save to test <code>HMR</code></p>
-  </div>
-  <button id="counter" type="button" class="counter"></button>
-</section>
+`;
 
-<div class="ticks"></div>
+// Draw sample text on canvas to bypass file upload for initial test
+const canvas = document.getElementById('sampleCanvas');
+const ctx = canvas.getContext('2d');
+ctx.fillStyle = '#ffffff';
+ctx.fillRect(0, 0, canvas.width, canvas.height);
+ctx.fillStyle = '#333333';
+ctx.font = 'bold 24px Arial';
+ctx.fillText('NUTRIVISION-100', 30, 60);
 
-<section id="next-steps">
-  <div id="docs">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#documentation-icon"></use></svg>
-    <h2>Documentation</h2>
-    <p>Your questions, answered</p>
-    <ul>
-      <li>
-        <a href="https://vite.dev/" target="_blank">
-          <img class="logo" src="${viteLogo}" alt="" />
-          Explore Vite
-        </a>
-      </li>
-      <li>
-        <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript" target="_blank">
-          <img class="button-icon" src="${javascriptLogo}" alt="">
-          Learn more
-        </a>
-      </li>
-    </ul>
-  </div>
-  <div id="social">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#social-icon"></use></svg>
-    <h2>Connect with us</h2>
-    <p>Join the Vite community</p>
-    <ul>
-      <li><a href="https://github.com/vitejs/vite" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#github-icon"></use></svg>GitHub</a></li>
-      <li><a href="https://chat.vite.dev/" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#discord-icon"></use></svg>Discord</a></li>
-      <li><a href="https://x.com/vite_js" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#x-icon"></use></svg>X.com</a></li>
-      <li><a href="https://bsky.app/profile/vite.dev" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#bluesky-icon"></use></svg>Bluesky</a></li>
-    </ul>
-  </div>
-</section>
+const runOcrBtn = document.getElementById('runOcrBtn');
+const statusText = document.getElementById('statusText');
+const progressBar = document.getElementById('progressBar');
+const outputText = document.getElementById('outputText');
 
-<div class="ticks"></div>
-<section id="spacer"></section>
-`
+// Asynchronous OCR logic
+async function runOCR() {
+  runOcrBtn.disabled = true;
+  outputText.textContent = '';
+  statusText.textContent = 'Initializing...';
+  progressBar.style.display = 'block';
+  progressBar.value = 0;
 
-setupCounter(document.querySelector('#counter'))
+  try {
+    const image = canvas.toDataURL('image/png');
+
+    // Tesseract.recognize is async, returns Promise
+    const result = await Tesseract.recognize(
+      image,
+      'eng',
+      {
+        logger: (m) => {
+          if (m.status === 'recognizing text') {
+            statusText.textContent = `Recognizing: ${Math.round(m.progress * 100)}%`;
+            progressBar.value = m.progress * 100;
+          } else {
+            statusText.textContent = m.status; // e.g. loading language traineddata
+          }
+        }
+      }
+    );
+
+    statusText.textContent = 'Completed!';
+    progressBar.style.display = 'none';
+    outputText.textContent = result.data.text;
+  } catch (error) {
+    statusText.textContent = 'Error!';
+    progressBar.style.display = 'none';
+    outputText.textContent = `OCR Error: ${error.message}`;
+    console.error('OCR Error:', error);
+  } finally {
+    runOcrBtn.disabled = false;
+  }
+}
+
+runOcrBtn.addEventListener('click', runOCR);
