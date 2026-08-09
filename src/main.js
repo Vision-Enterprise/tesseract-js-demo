@@ -1,81 +1,170 @@
 import './style.css';
 import Tesseract from 'tesseract.js';
 
-// Scaffold basic sandbox UI
+// Setup HTML Structure
 document.querySelector('#app').innerHTML = `
-  <div style="font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px;">
-    <h2>NutriVision OCR Sandbox</h2>
-    <p>Phase 3: Basic Tesseract Initialization</p>
-    
-    <div style="margin-bottom: 20px;">
-      <canvas id="sampleCanvas" width="300" height="100" style="border: 1px dashed #999; display: block; margin-bottom: 10px;"></canvas>
-      <button id="runOcrBtn" style="padding: 10px 20px; font-size: 16px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px;">Run OCR on Canvas</button>
+  <div class="scanner-card">
+    <h1 class="title">NutriVision Scanner</h1>
+    <p class="subtitle">University Capstone OCR Prototype - Document Scan</p>
+
+    <!-- Dropzone / File Picker -->
+    <div class="dropzone" id="dropzone">
+      <span class="dropzone-icon">📄</span>
+      <p style="margin: 0; font-size: 16px; font-weight: 500;">Drag & drop document or click to scan file</p>
+      <p style="margin: 4px 0 0; font-size: 13px; color: var(--text-muted);">Supports PNG, JPG, JPEG</p>
+      <input type="file" id="fileInput" accept="image/*" style="display: none;" />
     </div>
-    
-    <div style="margin-bottom: 20px;">
-      <strong>Status:</strong> <span id="statusText">Idle</span>
-      <progress id="progressBar" value="0" max="100" style="width: 100%; display: none; margin-top: 5px;"></progress>
+
+    <!-- Preview Container -->
+    <div class="preview-container" id="previewContainer" style="display: none;">
+      <img id="previewImg" class="preview-image" alt="Scanned Document Preview" />
     </div>
-    
-    <div>
-      <strong>Extracted Text:</strong>
-      <pre id="outputText" style="background: #f4f4f4; padding: 10px; border-radius: 4px; min-height: 50px; white-space: pre-wrap; border: 1px solid #ddd;"></pre>
+
+    <!-- Actions -->
+    <button class="btn" id="scanBtn" disabled>Run Document Scan</button>
+
+    <!-- Status Panel -->
+    <div class="status-panel" id="statusPanel" style="display: none;">
+      <div class="status-header">
+        <span id="statusText">Ready</span>
+        <span id="progressText">0%</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+    </div>
+
+    <!-- Output -->
+    <div class="output-container" id="outputContainer" style="display: none;">
+      <label class="output-label">Extracted Text Data</label>
+      <div class="output-box" id="outputBox"></div>
     </div>
   </div>
 `;
 
-// Draw sample text on canvas to bypass file upload for initial test
-const canvas = document.getElementById('sampleCanvas');
-const ctx = canvas.getContext('2d');
-ctx.fillStyle = '#ffffff';
-ctx.fillRect(0, 0, canvas.width, canvas.height);
-ctx.fillStyle = '#333333';
-ctx.font = 'bold 24px Arial';
-ctx.fillText('NUTRIVISION-100', 30, 60);
-
-const runOcrBtn = document.getElementById('runOcrBtn');
+// Element Selectors
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const previewContainer = document.getElementById('previewContainer');
+const previewImg = document.getElementById('previewImg');
+const scanBtn = document.getElementById('scanBtn');
+const statusPanel = document.getElementById('statusPanel');
 const statusText = document.getElementById('statusText');
-const progressBar = document.getElementById('progressBar');
-const outputText = document.getElementById('outputText');
+const progressText = document.getElementById('progressText');
+const progressFill = document.getElementById('progressFill');
+const outputContainer = document.getElementById('outputContainer');
+const outputBox = document.getElementById('outputBox');
 
-// Asynchronous OCR logic
-async function runOCR() {
-  runOcrBtn.disabled = true;
-  outputText.textContent = '';
-  statusText.textContent = 'Initializing...';
-  progressBar.style.display = 'block';
-  progressBar.value = 0;
+// State
+let selectedImageFile = null;
+
+// Trigger input click on dropzone click
+dropzone.addEventListener('click', () => fileInput.click());
+
+// Handle file selection
+fileInput.addEventListener('change', handleFileSelect);
+
+// Drag & Drop handlers
+dropzone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropzone.style.borderColor = 'var(--primary)';
+});
+
+dropzone.addEventListener('dragleave', () => {
+  dropzone.style.borderColor = 'var(--border)';
+});
+
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropzone.style.borderColor = 'var(--border)';
+  if (e.dataTransfer.files.length > 0) {
+    processFile(e.dataTransfer.files[0]);
+  }
+});
+
+function handleFileSelect(e) {
+  if (e.target.files.length > 0) {
+    processFile(e.target.files[0]);
+  }
+}
+
+// Process selected file
+function processFile(file) {
+  if (!file.type.startsWith('image/')) {
+    alert('Please import a valid image document.');
+    return;
+  }
+
+  selectedImageFile = file;
+
+  // Use Object URL for visual preview (memory-efficient)
+  const objectUrl = URL.createObjectURL(file);
+  previewImg.src = objectUrl;
+
+  // Show UI elements
+  previewContainer.style.display = 'flex';
+  scanBtn.disabled = false;
+
+  // Reset outputs
+  outputContainer.style.display = 'none';
+  statusPanel.style.display = 'none';
+}
+
+// Run OCR processing
+async function runScan() {
+  if (!selectedImageFile) return;
+
+  // UI Updates
+  scanBtn.disabled = true;
+  dropzone.style.pointerEvents = 'none';
+  outputContainer.style.display = 'none';
+  statusPanel.style.display = 'block';
+  statusText.textContent = 'Initializing engine...';
+  progressText.textContent = '0%';
+  progressFill.style.width = '0%';
+  progressFill.style.backgroundColor = 'var(--primary)'; // Reset from potential error red
 
   try {
-    const image = canvas.toDataURL('image/png');
-
-    // Tesseract.recognize is async, returns Promise
     const result = await Tesseract.recognize(
-      image,
+      selectedImageFile,
       'eng',
       {
         logger: (m) => {
           if (m.status === 'recognizing text') {
-            statusText.textContent = `Recognizing: ${Math.round(m.progress * 100)}%`;
-            progressBar.value = m.progress * 100;
+            const percentage = Math.round(m.progress * 100);
+            statusText.textContent = 'Extracting document text...';
+            progressText.textContent = `${percentage}%`;
+            progressFill.style.width = `${percentage}%`;
           } else {
-            statusText.textContent = m.status; // e.g. loading language traineddata
+            statusText.textContent = m.status;
+            progressText.textContent = '...';
           }
         }
       }
     );
 
-    statusText.textContent = 'Completed!';
-    progressBar.style.display = 'none';
-    outputText.textContent = result.data.text;
+    // Complete UI
+    statusText.textContent = 'OCR Completed!';
+    progressText.textContent = '100%';
+    progressFill.style.width = '100%';
+
+    // Output raw result
+    outputContainer.style.display = 'block';
+    const textResult = result.data.text.trim();
+    outputBox.textContent = textResult || '(No text resolved in this image document)';
   } catch (error) {
-    statusText.textContent = 'Error!';
-    progressBar.style.display = 'none';
-    outputText.textContent = `OCR Error: ${error.message}`;
-    console.error('OCR Error:', error);
+    statusText.textContent = 'Error occurred';
+    progressText.textContent = 'FAILED';
+    progressFill.style.width = '100%';
+    progressFill.style.backgroundColor = 'var(--error)';
+    
+    outputContainer.style.display = 'block';
+    outputBox.innerHTML = `<span style="color: var(--error)">Failed to scan image.<br>Details: ${error.message}</span>`;
+    console.error('Scan Error:', error);
   } finally {
-    runOcrBtn.disabled = false;
+    scanBtn.disabled = false;
+    dropzone.style.pointerEvents = 'auto';
   }
 }
 
-runOcrBtn.addEventListener('click', runOCR);
+scanBtn.addEventListener('click', runScan);
