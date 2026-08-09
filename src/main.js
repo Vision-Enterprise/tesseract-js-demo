@@ -1,7 +1,9 @@
 import './style.css';
+import 'cropperjs/dist/cropper.css';
 import Tesseract from 'tesseract.js';
+import Cropper from 'cropperjs';
 
-// Setup HTML Structure with tabs and camera controls
+// Setup HTML Structure
 document.querySelector('#app').innerHTML = `
   <div class="scanner-card">
     <h1 class="title">NutriVision Scanner</h1>
@@ -32,13 +34,16 @@ document.querySelector('#app').innerHTML = `
       </div>
     </div>
 
-    <!-- Preview Container -->
-    <div class="preview-container" id="previewContainer" style="display: none;">
-      <img id="previewImg" class="preview-image" alt="Scanned Document Preview" />
+    <!-- Crop Container (hidden until image loaded) -->
+    <div id="cropContainer" style="display: none;">
+      <div class="crop-wrapper">
+        <img id="cropImg" alt="Crop Source" />
+      </div>
+      <div class="crop-actions">
+        <button class="btn-secondary" id="resetCropBtn">↺ Reset Crop</button>
+        <button class="btn" id="scanBtn" disabled>✂ Crop & Scan</button>
+      </div>
     </div>
-
-    <!-- Run OCR Action -->
-    <button class="btn" id="scanBtn" disabled>Run Document Scan</button>
 
     <!-- Status Panel -->
     <div class="status-panel" id="statusPanel" style="display: none;">
@@ -68,8 +73,9 @@ const cameraPanel = document.getElementById('cameraPanel');
 const video = document.getElementById('video');
 const startCamBtn = document.getElementById('startCamBtn');
 const captureBtn = document.getElementById('captureBtn');
-const previewContainer = document.getElementById('previewContainer');
-const previewImg = document.getElementById('previewImg');
+const cropContainer = document.getElementById('cropContainer');
+const cropImg = document.getElementById('cropImg');
+const resetCropBtn = document.getElementById('resetCropBtn');
 const scanBtn = document.getElementById('scanBtn');
 const statusPanel = document.getElementById('statusPanel');
 const statusText = document.getElementById('statusText');
@@ -79,20 +85,17 @@ const outputContainer = document.getElementById('outputContainer');
 const outputBox = document.getElementById('outputBox');
 
 // State
-let selectedImageSource = null; // Can be a File or a Data URL
 let stream = null;
+let cropperInstance = null; // Stores active Cropper.js instance
 
 // Tab Switch Logic
-tabUpload.addEventListener('click', () => {
-  switchTab('upload');
-});
-
-tabCamera.addEventListener('click', () => {
-  switchTab('camera');
-});
+tabUpload.addEventListener('click', () => switchTab('upload'));
+tabCamera.addEventListener('click', () => switchTab('camera'));
 
 function switchTab(mode) {
   stopCamera();
+  destroyCropper();
+
   if (mode === 'upload') {
     tabUpload.classList.add('active');
     tabCamera.classList.remove('active');
@@ -104,24 +107,18 @@ function switchTab(mode) {
     dropzone.style.display = 'none';
     cameraPanel.style.display = 'flex';
   }
-  // Clear preview and scan readiness when switching
-  selectedImageSource = null;
-  previewContainer.style.display = 'none';
-  previewImg.src = '';
+
+  cropContainer.style.display = 'none';
   scanBtn.disabled = true;
   outputContainer.style.display = 'none';
   statusPanel.style.display = 'none';
 }
 
-// Trigger input click on dropzone click
+// File Upload Handlers
 dropzone.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', (e) => {
-  if (e.target.files.length > 0) {
-    processImageSource(e.target.files[0]);
-  }
+  if (e.target.files.length > 0) loadImageForCrop(e.target.files[0]);
 });
-
-// Drag & Drop handlers
 dropzone.addEventListener('dragover', (e) => {
   e.preventDefault();
   dropzone.style.borderColor = 'var(--primary)';
@@ -132,26 +129,10 @@ dropzone.addEventListener('dragleave', () => {
 dropzone.addEventListener('drop', (e) => {
   e.preventDefault();
   dropzone.style.borderColor = 'var(--border)';
-  if (e.dataTransfer.files.length > 0) {
-    processImageSource(e.dataTransfer.files[0]);
-  }
+  if (e.dataTransfer.files.length > 0) loadImageForCrop(e.dataTransfer.files[0]);
 });
 
-// Process source (accepts File or Data URL string)
-function processImageSource(source) {
-  selectedImageSource = source;
-  if (source instanceof File) {
-    const objectUrl = URL.createObjectURL(source);
-    previewImg.src = objectUrl;
-  } else {
-    // Data URL from Camera
-    previewImg.src = source;
-  }
-  previewContainer.style.display = 'flex';
-  scanBtn.disabled = false;
-}
-
-// Camera controls
+// Camera Controls
 startCamBtn.addEventListener('click', startCamera);
 captureBtn.addEventListener('click', captureFrame);
 
@@ -159,17 +140,10 @@ async function startCamera() {
   try {
     startCamBtn.disabled = true;
     startCamBtn.textContent = 'Starting...';
-    
-    // FacingMode 'environment' tells mobile browsers to request back camera
     stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: 'environment',
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      },
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false
     });
-
     video.srcObject = stream;
     captureBtn.disabled = false;
     startCamBtn.textContent = 'Camera Active';
@@ -183,19 +157,12 @@ async function startCamera() {
 
 function captureFrame() {
   if (!stream) return;
-
   const canvas = document.createElement('canvas');
-  // Match camera frame size
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
-  
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-  const dataUrl = canvas.toDataURL('image/png');
-  processImageSource(dataUrl);
-
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
   stopCamera();
+  loadImageForCrop(canvas.toDataURL('image/png'));
 }
 
 function stopCamera() {
@@ -209,9 +176,57 @@ function stopCamera() {
   startCamBtn.textContent = 'Start Camera';
 }
 
-// Run OCR processing
+// Load image into Cropper.js
+function loadImageForCrop(source) {
+  destroyCropper();
+
+  // Set image src
+  if (source instanceof File) {
+    cropImg.src = URL.createObjectURL(source);
+  } else {
+    cropImg.src = source; // Data URL from camera
+  }
+
+  cropContainer.style.display = 'block';
+  outputContainer.style.display = 'none';
+  statusPanel.style.display = 'none';
+
+  // Initialize Cropper after image loads
+  cropImg.onload = () => {
+    cropperInstance = new Cropper(cropImg, {
+      viewMode: 1,        // Keep crop box inside image
+      autoCropArea: 0.8,  // Default crop = 80% of image
+      movable: true,
+      zoomable: true,
+      scalable: false,
+      rotatable: false,
+    });
+    scanBtn.disabled = false;
+  };
+}
+
+// Destroy existing Cropper instance to avoid memory leaks
+function destroyCropper() {
+  if (cropperInstance) {
+    cropperInstance.destroy();
+    cropperInstance = null;
+  }
+  cropImg.src = '';
+  scanBtn.disabled = true;
+}
+
+// Reset crop box to default
+resetCropBtn.addEventListener('click', () => {
+  if (cropperInstance) cropperInstance.reset();
+});
+
+// Run OCR on cropped region
 async function runScan() {
-  if (!selectedImageSource) return;
+  if (!cropperInstance) return;
+
+  // Get canvas of cropped area only (not full image)
+  const croppedCanvas = cropperInstance.getCroppedCanvas();
+  if (!croppedCanvas) return;
 
   scanBtn.disabled = true;
   outputContainer.style.display = 'none';
@@ -222,16 +237,17 @@ async function runScan() {
   progressFill.style.backgroundColor = 'var(--primary)';
 
   try {
+    // Pass cropped canvas directly — Tesseract accepts canvas elements
     const result = await Tesseract.recognize(
-      selectedImageSource,
+      croppedCanvas,
       'eng',
       {
         logger: (m) => {
           if (m.status === 'recognizing text') {
-            const percentage = Math.round(m.progress * 100);
-            statusText.textContent = 'Scanning document text...';
-            progressText.textContent = `${percentage}%`;
-            progressFill.style.width = `${percentage}%`;
+            const pct = Math.round(m.progress * 100);
+            statusText.textContent = 'Scanning cropped region...';
+            progressText.textContent = `${pct}%`;
+            progressFill.style.width = `${pct}%`;
           } else {
             statusText.textContent = m.status;
             progressText.textContent = '...';
@@ -246,15 +262,14 @@ async function runScan() {
 
     outputContainer.style.display = 'block';
     const textResult = result.data.text.trim();
-    outputBox.textContent = textResult || '(No text resolved in this document)';
+    outputBox.textContent = textResult || '(No text resolved in cropped region)';
   } catch (error) {
     statusText.textContent = 'Scanning Failed';
     progressText.textContent = 'FAILED';
     progressFill.style.width = '100%';
     progressFill.style.backgroundColor = 'var(--error)';
-    
     outputContainer.style.display = 'block';
-    outputBox.innerHTML = `<span style="color: var(--error)">Failed to scan image.<br>Details: ${error.message}</span>`;
+    outputBox.innerHTML = `<span style="color: var(--error)">Failed to scan.<br>Details: ${error.message}</span>`;
     console.error('Scan Error:', error);
   } finally {
     scanBtn.disabled = false;
