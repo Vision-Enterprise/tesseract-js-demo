@@ -295,3 +295,33 @@ body {
   gap: 12px;
 }
 
+
+/* Preprocessing Toggle */
+.preprocess-toggle {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background-color: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.toggle-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.threshold-control {
+  margin-top: 8px;
+}
