@@ -3,17 +3,20 @@ import 'cropperjs/dist/cropper.css';
 import { createWorker } from 'tesseract.js';
 import Cropper from 'cropperjs';
 import { preprocess } from './preprocessing.js';
+import { parseOCRResult } from './parser.js';
 
 document.querySelector('#app').innerHTML = `
   <div class="scanner-card">
     <h1 class="title">NutriVision Scanner</h1>
-    <p class="subtitle">University Capstone OCR Prototype - Camera & Upload</p>
+    <p class="subtitle">University Capstone OCR Prototype</p>
 
+    <!-- Scan Source Tabs -->
     <div class="tab-container">
       <button class="tab-btn active" id="tabUpload">File Import</button>
       <button class="tab-btn" id="tabCamera">Live Camera</button>
     </div>
 
+    <!-- Mode 1: Dropzone / File Picker -->
     <div class="dropzone" id="dropzone">
       <span class="dropzone-icon">📄</span>
       <p style="margin: 0; font-size: 16px; font-weight: 500;">Drag & drop document or click to scan file</p>
@@ -21,6 +24,7 @@ document.querySelector('#app').innerHTML = `
       <input type="file" id="fileInput" accept="image/*" style="display: none;" />
     </div>
 
+    <!-- Mode 2: Camera Panel -->
     <div class="camera-panel" id="cameraPanel" style="display: none;">
       <div class="video-wrapper">
         <video id="video" autoplay playsinline></video>
@@ -31,60 +35,67 @@ document.querySelector('#app').innerHTML = `
       </div>
     </div>
 
+    <!-- Image editor / Crop area -->
     <div id="cropContainer" style="display: none;">
       <div class="crop-wrapper">
         <img id="cropImg" alt="Crop Source" />
       </div>
 
-      <!-- Preprocessing Controls -->
-      <div class="preprocess-toggle">
-        <label class="toggle-label">
-          <input type="checkbox" id="preprocessToggle" checked />
-          <span class="toggle-text">Apply preprocessing (grayscale + threshold)</span>
-        </label>
-        <div class="threshold-control" id="thresholdControl">
-          <label for="thresholdSlider" style="font-size: 13px; color: var(--text-muted);">
-            Threshold: <strong id="thresholdValue">128</strong>
-          </label>
-          <input type="range" id="thresholdSlider" min="50" max="220" value="128" style="width: 100%;" />
-        </div>
-      </div>
-
-      <!-- OCR Settings Controls -->
-      <div class="preprocess-toggle" style="margin-top: 16px;">
-        <label class="output-label" style="margin-bottom: 8px; display: block; font-size: 14px;">OCR Engine Settings</label>
+      <!-- Collapsible Advanced Settings (Collapses by default for UX simplicity) -->
+      <details class="advanced-settings-panel" style="margin-bottom: 16px;">
+        <summary class="advanced-summary">⚙️ Advanced Scan Settings</summary>
         
-        <div style="margin-bottom: 12px;">
-          <label style="font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 4px;">Page Segmentation Mode (PSM)</label>
-          <select id="psmSelect" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-main); font-weight: 500;">
-            <option value="3">Auto Segmentation (PSM 3)</option>
-            <option value="7" selected>Single Line of Text (PSM 7)</option>
-            <option value="8">Single Word (PSM 8)</option>
-          </select>
+        <div class="advanced-content" style="padding-top: 16px;">
+          <!-- Preprocessing Options -->
+          <div class="preprocess-toggle">
+            <label class="toggle-label">
+              <input type="checkbox" id="preprocessToggle" checked />
+              <span class="toggle-text">Apply image preprocessing (grayscale + threshold)</span>
+            </label>
+            <div class="threshold-control" id="thresholdControl">
+              <label for="thresholdSlider" style="font-size: 13px; color: var(--text-muted);">
+                Threshold level: <strong id="thresholdValue">128</strong>
+              </label>
+              <input type="range" id="thresholdSlider" min="50" max="220" value="128" style="width: 100%;" />
+            </div>
+          </div>
+
+          <!-- OCR Engine parameters -->
+          <div class="preprocess-toggle" style="margin-top: 12px;">
+            <div style="margin-bottom: 12px;">
+              <label style="font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 4px;">Page Segmentation Mode (PSM)</label>
+              <select id="psmSelect" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-main); font-weight: 500;">
+                <option value="3">Auto Segmentation (PSM 3)</option>
+                <option value="7" selected>Single Line of Text (PSM 7)</option>
+                <option value="8">Single Word (PSM 8)</option>
+              </select>
+            </div>
+
+            <div>
+              <label style="font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 4px;">Character Whitelist Preset</label>
+              <select id="whitelistSelect" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-main); font-weight: 500;">
+                <option value="">All Characters (Default)</option>
+                <option value="0123456789">Numbers Only (0-9)</option>
+                <option value="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-">Batch Numbers (Caps & Digits & Dash)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Preprocessed image preview -->
+          <div id="preprocessPreviewContainer" style="display: none; margin-top: 12px;">
+            <label class="output-label" style="font-size: 12px;">Preprocessed Image Preview</label>
+            <canvas id="preprocessPreview" style="width: 100%; border-radius: 8px; border: 1px solid var(--border); display: block;"></canvas>
+          </div>
         </div>
+      </details>
 
-        <div>
-          <label style="font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 4px;">Character Whitelist Preset</label>
-          <select id="whitelistSelect" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-main); font-weight: 500;">
-            <option value="">All Characters (Default)</option>
-            <option value="0123456789">Numbers Only (0-9)</option>
-            <option value="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-">Batch Numbers (Caps & Digits & Dash)</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Preprocessed image preview (visible after scan) -->
-      <div id="preprocessPreviewContainer" style="display: none; margin-bottom: 16px; margin-top: 16px;">
-        <label class="output-label">Preprocessed Image Preview</label>
-        <canvas id="preprocessPreview" style="width: 100%; border-radius: 8px; border: 1px solid var(--border); display: block;"></canvas>
-      </div>
-
-      <div class="crop-actions" style="margin-top: 16px;">
+      <div class="crop-actions">
         <button class="btn-secondary" id="resetCropBtn">Reset Crop</button>
         <button class="btn" id="scanBtn" disabled>Crop & Scan</button>
       </div>
     </div>
 
+    <!-- Scanner feedback status -->
     <div class="status-panel" id="statusPanel" style="display: none;">
       <div class="status-header">
         <span id="statusText">Ready</span>
@@ -95,8 +106,32 @@ document.querySelector('#app').innerHTML = `
       </div>
     </div>
 
+    <!-- Parsed Fields Output -->
+    <div class="output-container" id="parsedContainer" style="display: none; margin-top: 24px;">
+      <label class="output-label">Parsed Structured Data</label>
+      <div style="background-color: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; font-size: 14px; text-align: left;">
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 8px;">
+          <strong style="color: var(--text-muted);">Product Name:</strong>
+          <span id="parsedProduct" style="font-weight: 600;"></span>
+        </div>
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 8px;">
+          <strong style="color: var(--text-muted);">Batch Number:</strong>
+          <span id="parsedBatch" style="font-weight: 600; font-family: monospace;"></span>
+        </div>
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 8px;">
+          <strong style="color: var(--text-muted);">Expiration Date:</strong>
+          <span id="parsedExpiry" style="font-weight: 600;"></span>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <strong style="color: var(--text-muted);">Quantity:</strong>
+          <span id="parsedQuantity" style="font-weight: 600;"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Output -->
     <div class="output-container" id="outputContainer" style="display: none;">
-      <label class="output-label">Extracted Text Data</label>
+      <label class="output-label">Extracted Raw Text</label>
       <div class="output-box" id="outputBox"></div>
     </div>
   </div>
@@ -129,6 +164,13 @@ const preprocessPreviewContainer = document.getElementById('preprocessPreviewCon
 const preprocessPreview = document.getElementById('preprocessPreview');
 const psmSelect = document.getElementById('psmSelect');
 const whitelistSelect = document.getElementById('whitelistSelect');
+
+// Parsed Data Selectors
+const parsedContainer = document.getElementById('parsedContainer');
+const parsedProduct = document.getElementById('parsedProduct');
+const parsedBatch = document.getElementById('parsedBatch');
+const parsedExpiry = document.getElementById('parsedExpiry');
+const parsedQuantity = document.getElementById('parsedQuantity');
 
 // State
 let stream = null;
@@ -170,6 +212,7 @@ function switchTab(mode) {
   outputContainer.style.display = 'none';
   statusPanel.style.display = 'none';
   preprocessPreviewContainer.style.display = 'none';
+  parsedContainer.style.display = 'none';
 }
 
 // File Upload
@@ -242,6 +285,7 @@ function loadImageForCrop(source) {
   cropContainer.style.display = 'block';
   outputContainer.style.display = 'none';
   statusPanel.style.display = 'none';
+  parsedContainer.style.display = 'none';
 
   cropImg.onload = () => {
     cropperInstance = new Cropper(cropImg, {
@@ -295,6 +339,7 @@ async function runScan() {
 
   scanBtn.disabled = true;
   outputContainer.style.display = 'none';
+  parsedContainer.style.display = 'none';
   statusPanel.style.display = 'block';
   statusText.textContent = 'Initializing OCR worker...';
   progressText.textContent = '0%';
@@ -303,7 +348,6 @@ async function runScan() {
 
   let worker = null;
   try {
-    // Create dedicated worker to allow parameters modification
     worker = await createWorker('eng', 1, {
       logger: (m) => {
         if (m.status === 'recognizing text') {
@@ -317,7 +361,6 @@ async function runScan() {
       }
     });
 
-    // Set configuration parameters on worker
     const workerParams = {
       tessedit_pageseg_mode: psmSelect.value
     };
@@ -328,7 +371,6 @@ async function runScan() {
 
     await worker.setParameters(workerParams);
 
-    // Perform recognition
     const result = await worker.recognize(canvas);
 
     statusText.textContent = 'Scan Complete!';
@@ -338,6 +380,23 @@ async function runScan() {
     
     const textResult = result.data.text.trim();
     outputBox.textContent = textResult || '(No text resolved)';
+
+    // Parse structured data from extracted text
+    const parsedData = parseOCRResult(textResult);
+    
+    parsedProduct.textContent = parsedData.productName || 'Not Found';
+    parsedProduct.style.color = parsedData.productName ? 'var(--text-main)' : 'var(--text-muted)';
+    
+    parsedBatch.textContent = parsedData.batchNumber || 'Not Found';
+    parsedBatch.style.color = parsedData.batchNumber ? 'var(--text-main)' : 'var(--text-muted)';
+    
+    parsedExpiry.textContent = parsedData.expirationDate || 'Not Found';
+    parsedExpiry.style.color = parsedData.expirationDate ? 'var(--text-main)' : 'var(--text-muted)';
+    
+    parsedQuantity.textContent = parsedData.quantity !== null ? parsedData.quantity : 'Not Found';
+    parsedQuantity.style.color = parsedData.quantity !== null ? 'var(--text-main)' : 'var(--text-muted)';
+    
+    parsedContainer.style.display = 'block';
   } catch (error) {
     statusText.textContent = 'Scanning Failed';
     progressText.textContent = 'FAILED';
