@@ -1,25 +1,25 @@
-:root {
-  --primary: #6366f1;
-  --primary-hover: #4f46e5;
-  --bg-main: #f8fafc;
+﻿:root {
+  --primary: #2e7d32; /* NutriVision Brand Green */
+  --primary-hover: #1b5e20;
+  --bg-main: #f4f6f5; /* Light green-gray background */
   --bg-card: #ffffff;
-  --text-main: #1e293b;
-  --text-muted: #64748b;
-  --border: #e2e8f0;
-  --success: #10b981;
-  --error: #ef4444;
-  --radius: 12px;
-  --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --text-main: #1a231d;
+  --text-muted: #5c6b61;
+  --border: #e0e5e2;
+  --success: #2e7d32;
+  --error: #c62828;
+  --radius: 8px; /* 8px rounded corners to match the dashboard widgets */
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.05); /* Soft clean flat shadow */
   --font: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg-main: #0f172a;
-    --bg-card: #1e293b;
-    --text-main: #f8fafc;
-    --text-muted: #94a3b8;
-    --border: #334155;
+    --bg-main: #0c100d; /* Very dark charcoal green */
+    --bg-card: #161c18; /* Dark green-gray card */
+    --text-main: #f1f5f2;
+    --text-muted: #8e9c93;
+    --border: #2a352e;
     --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
   }
 }
@@ -54,16 +54,17 @@ body {
 .title {
   font-size: 28px;
   font-weight: 700;
-  margin: 0 0 8px;
-  background: linear-gradient(135deg, var(--primary), #a855f7);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  margin: 0 0 4px;
+  color: var(--primary);
 }
 
 .subtitle {
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-muted);
   margin: 0 0 24px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 /* Tabs */
@@ -85,7 +86,7 @@ body {
   border: none;
   background: none;
   color: var(--text-muted);
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
   display: flex;
@@ -108,12 +109,12 @@ body {
   cursor: pointer;
   transition: all 0.2s ease-in-out;
   margin-bottom: 24px;
-  background: rgba(99, 102, 241, 0.02);
+  background: rgba(46, 125, 50, 0.01);
 }
 
 .dropzone:hover {
   border-color: var(--primary);
-  background: rgba(99, 102, 241, 0.05);
+  background: rgba(46, 125, 50, 0.03);
 }
 
 .dropzone input {
@@ -204,7 +205,7 @@ body {
   border-radius: var(--radius);
   cursor: pointer;
   transition: background-color 0.2s;
-  box-shadow: 0 2px 4px rgba(99, 102, 241, 0.2);
+  box-shadow: 0 2px 4px rgba(46, 125, 50, 0.15);
 }
 
 .btn:hover {
@@ -258,6 +259,8 @@ body {
   font-weight: 600;
   margin-bottom: 8px;
   display: block;
+  text-align: left;
+  color: var(--primary);
 }
 
 .output-box {
