@@ -325,3 +325,34 @@ body {
 .threshold-control {
   margin-top: 8px;
 }
+
+/* Advanced Settings Panel Details Styles */
+.advanced-settings-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background-color: var(--bg-main);
+  text-align: left;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.advanced-summary {
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+  cursor: pointer;
+  user-select: none;
+  background-color: var(--bg-main);
+  outline: none;
+}
+
+.advanced-summary:hover {
+  background-color: var(--border);
+}
+
+.advanced-content {
+  padding: 0 16px 16px 16px;
+  border-top: 1px solid var(--border);
+  background-color: var(--bg-card);
+}
