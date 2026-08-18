@@ -1,21 +1,19 @@
-import './style.css';
+﻿import './style.css';
 import 'cropperjs/dist/cropper.css';
 import Tesseract from 'tesseract.js';
 import Cropper from 'cropperjs';
+import { preprocess } from './preprocessing.js';
 
-// Setup HTML Structure
 document.querySelector('#app').innerHTML = `
   <div class="scanner-card">
     <h1 class="title">NutriVision Scanner</h1>
     <p class="subtitle">University Capstone OCR Prototype - Camera & Upload</p>
 
-    <!-- Scan Source Tabs -->
     <div class="tab-container">
-      <button class="tab-btn active" id="tabUpload">📄 File Import</button>
-      <button class="tab-btn" id="tabCamera">📷 Live Camera</button>
+      <button class="tab-btn active" id="tabUpload">File Import</button>
+      <button class="tab-btn" id="tabCamera">Live Camera</button>
     </div>
 
-    <!-- Mode 1: Dropzone / File Picker -->
     <div class="dropzone" id="dropzone">
       <span class="dropzone-icon">📄</span>
       <p style="margin: 0; font-size: 16px; font-weight: 500;">Drag & drop document or click to scan file</p>
@@ -23,7 +21,6 @@ document.querySelector('#app').innerHTML = `
       <input type="file" id="fileInput" accept="image/*" style="display: none;" />
     </div>
 
-    <!-- Mode 2: Camera Panel -->
     <div class="camera-panel" id="cameraPanel" style="display: none;">
       <div class="video-wrapper">
         <video id="video" autoplay playsinline></video>
@@ -34,18 +31,36 @@ document.querySelector('#app').innerHTML = `
       </div>
     </div>
 
-    <!-- Crop Container (hidden until image loaded) -->
     <div id="cropContainer" style="display: none;">
       <div class="crop-wrapper">
         <img id="cropImg" alt="Crop Source" />
       </div>
+
+      <div class="preprocess-toggle">
+        <label class="toggle-label">
+          <input type="checkbox" id="preprocessToggle" checked />
+          <span class="toggle-text">Apply preprocessing (grayscale + threshold)</span>
+        </label>
+        <div class="threshold-control" id="thresholdControl">
+          <label for="thresholdSlider" style="font-size: 13px; color: var(--text-muted);">
+            Threshold: <strong id="thresholdValue">128</strong>
+          </label>
+          <input type="range" id="thresholdSlider" min="50" max="220" value="128" style="width: 100%;" />
+        </div>
+      </div>
+
+      <!-- Preprocessed image preview (visible after scan) -->
+      <div id="preprocessPreviewContainer" style="display: none; margin-bottom: 16px;">
+        <label class="output-label">Preprocessed Image Preview</label>
+        <canvas id="preprocessPreview" style="width: 100%; border-radius: 8px; border: 1px solid var(--border); display: block;"></canvas>
+      </div>
+
       <div class="crop-actions">
-        <button class="btn-secondary" id="resetCropBtn">↺ Reset Crop</button>
-        <button class="btn" id="scanBtn" disabled>✂ Crop & Scan</button>
+        <button class="btn-secondary" id="resetCropBtn">Reset Crop</button>
+        <button class="btn" id="scanBtn" disabled>Crop & Scan</button>
       </div>
     </div>
 
-    <!-- Status Panel -->
     <div class="status-panel" id="statusPanel" style="display: none;">
       <div class="status-header">
         <span id="statusText">Ready</span>
@@ -56,7 +71,6 @@ document.querySelector('#app').innerHTML = `
       </div>
     </div>
 
-    <!-- Output -->
     <div class="output-container" id="outputContainer" style="display: none;">
       <label class="output-label">Extracted Text Data</label>
       <div class="output-box" id="outputBox"></div>
@@ -83,19 +97,37 @@ const progressText = document.getElementById('progressText');
 const progressFill = document.getElementById('progressFill');
 const outputContainer = document.getElementById('outputContainer');
 const outputBox = document.getElementById('outputBox');
+const preprocessToggle = document.getElementById('preprocessToggle');
+const thresholdSlider = document.getElementById('thresholdSlider');
+const thresholdValueLabel = document.getElementById('thresholdValue');
+const thresholdControl = document.getElementById('thresholdControl');
+const preprocessPreviewContainer = document.getElementById('preprocessPreviewContainer');
+const preprocessPreview = document.getElementById('preprocessPreview');
 
 // State
 let stream = null;
-let cropperInstance = null; // Stores active Cropper.js instance
+let cropperInstance = null;
 
-// Tab Switch Logic
+// Threshold slider
+thresholdSlider.addEventListener('input', () => {
+  thresholdValueLabel.textContent = thresholdSlider.value;
+});
+
+// Toggle threshold visibility
+preprocessToggle.addEventListener('change', () => {
+  thresholdControl.style.display = preprocessToggle.checked ? 'block' : 'none';
+  if (!preprocessToggle.checked) {
+    preprocessPreviewContainer.style.display = 'none';
+  }
+});
+
+// Tab Switch
 tabUpload.addEventListener('click', () => switchTab('upload'));
 tabCamera.addEventListener('click', () => switchTab('camera'));
 
 function switchTab(mode) {
   stopCamera();
   destroyCropper();
-
   if (mode === 'upload') {
     tabUpload.classList.add('active');
     tabCamera.classList.remove('active');
@@ -107,14 +139,14 @@ function switchTab(mode) {
     dropzone.style.display = 'none';
     cameraPanel.style.display = 'flex';
   }
-
   cropContainer.style.display = 'none';
   scanBtn.disabled = true;
   outputContainer.style.display = 'none';
   statusPanel.style.display = 'none';
+  preprocessPreviewContainer.style.display = 'none';
 }
 
-// File Upload Handlers
+// File Upload
 dropzone.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', (e) => {
   if (e.target.files.length > 0) loadImageForCrop(e.target.files[0]);
@@ -132,7 +164,7 @@ dropzone.addEventListener('drop', (e) => {
   if (e.dataTransfer.files.length > 0) loadImageForCrop(e.dataTransfer.files[0]);
 });
 
-// Camera Controls
+// Camera
 startCamBtn.addEventListener('click', startCamera);
 captureBtn.addEventListener('click', captureFrame);
 
@@ -148,8 +180,8 @@ async function startCamera() {
     captureBtn.disabled = false;
     startCamBtn.textContent = 'Camera Active';
   } catch (err) {
-    console.error('Camera Access Error:', err);
-    alert(`Camera error: ${err.message}. Ensure HTTPS or localhost is used.`);
+    console.error('Camera error:', err);
+    alert(`Camera error: ${err.message}. Ensure HTTPS or localhost.`);
     startCamBtn.disabled = false;
     startCamBtn.textContent = 'Start Camera';
   }
@@ -176,26 +208,19 @@ function stopCamera() {
   startCamBtn.textContent = 'Start Camera';
 }
 
-// Load image into Cropper.js
+// Crop
 function loadImageForCrop(source) {
   destroyCropper();
-
-  // Set image src
-  if (source instanceof File) {
-    cropImg.src = URL.createObjectURL(source);
-  } else {
-    cropImg.src = source; // Data URL from camera
-  }
-
+  preprocessPreviewContainer.style.display = 'none';
+  cropImg.src = source instanceof File ? URL.createObjectURL(source) : source;
   cropContainer.style.display = 'block';
   outputContainer.style.display = 'none';
   statusPanel.style.display = 'none';
 
-  // Initialize Cropper after image loads
   cropImg.onload = () => {
     cropperInstance = new Cropper(cropImg, {
-      viewMode: 1,        // Keep crop box inside image
-      autoCropArea: 0.8,  // Default crop = 80% of image
+      viewMode: 1,
+      autoCropArea: 0.8,
       movable: true,
       zoomable: true,
       scalable: false,
@@ -205,7 +230,6 @@ function loadImageForCrop(source) {
   };
 }
 
-// Destroy existing Cropper instance to avoid memory leaks
 function destroyCropper() {
   if (cropperInstance) {
     cropperInstance.destroy();
@@ -215,61 +239,68 @@ function destroyCropper() {
   scanBtn.disabled = true;
 }
 
-// Reset crop box to default
 resetCropBtn.addEventListener('click', () => {
   if (cropperInstance) cropperInstance.reset();
 });
 
-// Run OCR on cropped region
+// Run OCR
 async function runScan() {
   if (!cropperInstance) return;
 
-  // Get canvas of cropped area only (not full image)
-  const croppedCanvas = cropperInstance.getCroppedCanvas();
-  if (!croppedCanvas) return;
+  let canvas = cropperInstance.getCroppedCanvas();
+  if (!canvas) return;
+
+  // Apply preprocessing if toggle is ON
+  if (preprocessToggle.checked) {
+    canvas = preprocess(canvas, {
+      grayscale: true,
+      threshold: true,
+      thresholdValue: parseInt(thresholdSlider.value, 10),
+    });
+
+    // Show preprocessed image so user sees what Tesseract receives
+    preprocessPreview.width = canvas.width;
+    preprocessPreview.height = canvas.height;
+    preprocessPreview.getContext('2d').drawImage(canvas, 0, 0);
+    preprocessPreviewContainer.style.display = 'block';
+  } else {
+    preprocessPreviewContainer.style.display = 'none';
+  }
 
   scanBtn.disabled = true;
   outputContainer.style.display = 'none';
   statusPanel.style.display = 'block';
-  statusText.textContent = 'Starting scan...';
+  statusText.textContent = preprocessToggle.checked ? 'Scanning preprocessed...' : 'Scanning original...';
   progressText.textContent = '0%';
   progressFill.style.width = '0%';
   progressFill.style.backgroundColor = 'var(--primary)';
 
   try {
-    // Pass cropped canvas directly — Tesseract accepts canvas elements
-    const result = await Tesseract.recognize(
-      croppedCanvas,
-      'eng',
-      {
-        logger: (m) => {
-          if (m.status === 'recognizing text') {
-            const pct = Math.round(m.progress * 100);
-            statusText.textContent = 'Scanning cropped region...';
-            progressText.textContent = `${pct}%`;
-            progressFill.style.width = `${pct}%`;
-          } else {
-            statusText.textContent = m.status;
-            progressText.textContent = '...';
-          }
+    const result = await Tesseract.recognize(canvas, 'eng', {
+      logger: (m) => {
+        if (m.status === 'recognizing text') {
+          const pct = Math.round(m.progress * 100);
+          statusText.textContent = `Scanning... ${pct}%`;
+          progressText.textContent = `${pct}%`;
+          progressFill.style.width = `${pct}%`;
+        } else {
+          statusText.textContent = m.status;
         }
       }
-    );
+    });
 
     statusText.textContent = 'Scan Complete!';
     progressText.textContent = '100%';
     progressFill.style.width = '100%';
-
     outputContainer.style.display = 'block';
-    const textResult = result.data.text.trim();
-    outputBox.textContent = textResult || '(No text resolved in cropped region)';
+    outputBox.textContent = result.data.text.trim() || '(No text resolved)';
   } catch (error) {
     statusText.textContent = 'Scanning Failed';
     progressText.textContent = 'FAILED';
     progressFill.style.width = '100%';
     progressFill.style.backgroundColor = 'var(--error)';
     outputContainer.style.display = 'block';
-    outputBox.innerHTML = `<span style="color: var(--error)">Failed to scan.<br>Details: ${error.message}</span>`;
+    outputBox.innerHTML = `<span style="color: var(--error)">Error: ${error.message}</span>`;
     console.error('Scan Error:', error);
   } finally {
     scanBtn.disabled = false;
