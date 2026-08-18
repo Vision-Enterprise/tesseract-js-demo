@@ -1,6 +1,6 @@
 ﻿import './style.css';
 import 'cropperjs/dist/cropper.css';
-import Tesseract from 'tesseract.js';
+import { createWorker } from 'tesseract.js';
 import Cropper from 'cropperjs';
 import { preprocess } from './preprocessing.js';
 
@@ -36,6 +36,7 @@ document.querySelector('#app').innerHTML = `
         <img id="cropImg" alt="Crop Source" />
       </div>
 
+      <!-- Preprocessing Controls -->
       <div class="preprocess-toggle">
         <label class="toggle-label">
           <input type="checkbox" id="preprocessToggle" checked />
@@ -49,13 +50,36 @@ document.querySelector('#app').innerHTML = `
         </div>
       </div>
 
+      <!-- OCR Settings Controls -->
+      <div class="preprocess-toggle" style="margin-top: 16px;">
+        <label class="output-label" style="margin-bottom: 8px; display: block; font-size: 14px;">OCR Engine Settings</label>
+        
+        <div style="margin-bottom: 12px;">
+          <label style="font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 4px;">Page Segmentation Mode (PSM)</label>
+          <select id="psmSelect" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-main); font-weight: 500;">
+            <option value="3">Auto Segmentation (PSM 3)</option>
+            <option value="7" selected>Single Line of Text (PSM 7)</option>
+            <option value="8">Single Word (PSM 8)</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 4px;">Character Whitelist Preset</label>
+          <select id="whitelistSelect" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-main); font-weight: 500;">
+            <option value="">All Characters (Default)</option>
+            <option value="0123456789">Numbers Only (0-9)</option>
+            <option value="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-">Batch Numbers (Caps & Digits & Dash)</option>
+          </select>
+        </div>
+      </div>
+
       <!-- Preprocessed image preview (visible after scan) -->
-      <div id="preprocessPreviewContainer" style="display: none; margin-bottom: 16px;">
+      <div id="preprocessPreviewContainer" style="display: none; margin-bottom: 16px; margin-top: 16px;">
         <label class="output-label">Preprocessed Image Preview</label>
         <canvas id="preprocessPreview" style="width: 100%; border-radius: 8px; border: 1px solid var(--border); display: block;"></canvas>
       </div>
 
-      <div class="crop-actions">
+      <div class="crop-actions" style="margin-top: 16px;">
         <button class="btn-secondary" id="resetCropBtn">Reset Crop</button>
         <button class="btn" id="scanBtn" disabled>Crop & Scan</button>
       </div>
@@ -103,6 +127,8 @@ const thresholdValueLabel = document.getElementById('thresholdValue');
 const thresholdControl = document.getElementById('thresholdControl');
 const preprocessPreviewContainer = document.getElementById('preprocessPreviewContainer');
 const preprocessPreview = document.getElementById('preprocessPreview');
+const psmSelect = document.getElementById('psmSelect');
+const whitelistSelect = document.getElementById('whitelistSelect');
 
 // State
 let stream = null;
@@ -258,7 +284,7 @@ async function runScan() {
       thresholdValue: parseInt(thresholdSlider.value, 10),
     });
 
-    // Show preprocessed image so user sees what Tesseract receives
+    // Show preprocessed image
     preprocessPreview.width = canvas.width;
     preprocessPreview.height = canvas.height;
     preprocessPreview.getContext('2d').drawImage(canvas, 0, 0);
@@ -270,13 +296,15 @@ async function runScan() {
   scanBtn.disabled = true;
   outputContainer.style.display = 'none';
   statusPanel.style.display = 'block';
-  statusText.textContent = preprocessToggle.checked ? 'Scanning preprocessed...' : 'Scanning original...';
+  statusText.textContent = 'Initializing OCR worker...';
   progressText.textContent = '0%';
   progressFill.style.width = '0%';
   progressFill.style.backgroundColor = 'var(--primary)';
 
+  let worker = null;
   try {
-    const result = await Tesseract.recognize(canvas, 'eng', {
+    // Create dedicated worker to allow parameters modification
+    worker = await createWorker('eng', 1, {
       logger: (m) => {
         if (m.status === 'recognizing text') {
           const pct = Math.round(m.progress * 100);
@@ -289,11 +317,27 @@ async function runScan() {
       }
     });
 
+    // Set configuration parameters on worker
+    const workerParams = {
+      tessedit_pageseg_mode: psmSelect.value
+    };
+
+    if (whitelistSelect.value) {
+      workerParams.tessedit_char_whitelist = whitelistSelect.value;
+    }
+
+    await worker.setParameters(workerParams);
+
+    // Perform recognition
+    const result = await worker.recognize(canvas);
+
     statusText.textContent = 'Scan Complete!';
     progressText.textContent = '100%';
     progressFill.style.width = '100%';
     outputContainer.style.display = 'block';
-    outputBox.textContent = result.data.text.trim() || '(No text resolved)';
+    
+    const textResult = result.data.text.trim();
+    outputBox.textContent = textResult || '(No text resolved)';
   } catch (error) {
     statusText.textContent = 'Scanning Failed';
     progressText.textContent = 'FAILED';
@@ -303,6 +347,9 @@ async function runScan() {
     outputBox.innerHTML = `<span style="color: var(--error)">Error: ${error.message}</span>`;
     console.error('Scan Error:', error);
   } finally {
+    if (worker) {
+      await worker.terminate();
+    }
     scanBtn.disabled = false;
   }
 }
